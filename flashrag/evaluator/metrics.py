@@ -1,4 +1,5 @@
 import re
+import random
 import numpy as np
 import warnings
 from collections import Counter
@@ -642,3 +643,38 @@ class GAOKAOMM_Accuracy(BaseMetric):
         metric_dict['avg_score'] = np.mean(acc_list)
         return metric_dict, acc_list 
                 
+
+class LogLikelihood(BaseMetric):
+    metric_name = "log_likelihood"
+
+    def __init__(self, config):
+        super().__init__(config)
+        
+    def calculate_metric(self, data):
+        logs = data.loglikelihoods
+        golden_answers = data.golden_answers
+        
+        assert len(logs) == len(golden_answers), "Length of logs and golden answers should be the same"
+
+        metric_score_list = []
+        for i, log in enumerate(logs):
+            assert len(golden_answers[i]) == 1, "There must be ONLY 1 golden answer"
+            golden_answer_idx = int(golden_answers[i][0])
+            
+            model_answer = np.argmax(log)
+            score = 1 if model_answer == golden_answer_idx else 0
+            metric_score_list.append(score)
+            
+            # if random.random() < 0.1:
+            #     row = data[i]
+            #     print(f"Question: {row.question}")
+            #     print(f"Prompt: {row.prompt}")
+            #     print(f"LogLikelihood: {log}")
+            #     print(f"Model Answer (idx): {model_answer}")
+            #     print(f"Golden Answer (idx): {golden_answer_idx}")
+            #     print(f"Model Answer: {row.choices[model_answer]}")
+            #     print(f"Golden Answer: {row.choices[golden_answer_idx]}")
+            #     print(f"Score: {score}")
+                  
+        score = sum(metric_score_list) / len(metric_score_list)
+        return {"log_likelihood": score}, metric_score_list

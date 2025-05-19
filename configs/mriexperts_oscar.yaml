@@ -1,0 +1,31 @@
+data_dir: 'datasets/'
+save_dir: "/gpfs/projects/bsc70/hpai/storage/data/oscar/mriexperts/flashrag/outputs"
+
+dataset_name: "mriexperts" # name of the dataset in data_dir
+split: ["test"] # dataset split to load (e.g. train,dev,test)
+
+index_path: '/gpfs/projects/bsc70/hpai/storage/data/jordi/flashrag_data/indexes/pubmedbert_Flat.index'
+corpus_path: '/gpfs/projects/bsc70/hpai/storage/data/jordi/flashrag_data/indexes/rag_data_formatted.jsonl'
+model2path: 
+    pubmedbert: '/gpfs/scratch/bsc70/hpai/storage/projects/heka/models/embeddings/pubmedbert-base-embeddings'
+    qwen3-8b: '/gpfs/scratch/bsc70/hpai/storage/projects/heka/models/Qwen3-8B'
+    aloe7b: '/gpfs/projects/bsc70/hpai/storage/data/heka/aloe/models/Aloe-Beta-7B/Qwen2.5-Aloe-Beta-7B-Merged-DPO-RT'
+    aloe72b: '/gpfs/projects/bsc70/hpai/storage/data/heka/aloe/models/Aloe-Beta-72B/Qwen2.5-Aloe-Beta-72B-Merged-DPO-RT'
+  
+model2pooling:
+    pubmedbert: pooler
+
+generator_model: 'aloe72b'
+generator_max_input_len: 4096
+gpu_memory_utilization: 0.7
+generation_params:  
+  max_tokens: 256
+retrieval_method: 'pubmedbert'
+use_sentence_transformer: true
+instruction: ""
+
+metrics: ['log_likelihood']
+retrieval_topk: 3
+save_intermediate_data: True
+
+framework: vllm

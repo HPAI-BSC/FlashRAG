@@ -20,9 +20,9 @@ class PromptTemplate:
             self.generator_path = config["generator_model_path"]
             model_config = AutoConfig.from_pretrained(self.generator_path, trust_remote_code=True)
             model_name = model_config._name_or_path.lower()
-            self.is_chat = False
-            if "chat" in model_name or "instruct" in model_name:
-                self.is_chat = True
+            self.is_chat = True
+            # if "chat" in model_name or "instruct" in model_name:
+            #     self.is_chat = True
             self.tokenizer = AutoTokenizer.from_pretrained(self.generator_path, trust_remote_code=True)
         else:
             self.is_chat = True
@@ -91,15 +91,17 @@ class PromptTemplate:
             tokenized_prompt = self.tokenizer(prompt, truncation=False, return_tensors="pt").input_ids[0]
 
             if len(tokenized_prompt) > self.max_input_len:
+                print("Prompt to truncate:", prompt)
                 print(f"The input text length is greater than the maximum length ({len(tokenized_prompt)} > {self.max_input_len}) and has been truncated!")
                 half = int(self.max_input_len / 2)
                 prompt = self.tokenizer.decode(tokenized_prompt[:half], skip_special_tokens=True) + \
                         self.tokenizer.decode(tokenized_prompt[-half:], skip_special_tokens=True)
+                print("Truncated prompt: ", prompt)
             return prompt
 
 
 
-    def get_string(self, question=None, retrieval_result=None, formatted_reference=None, previous_gen=None, messages=None, **params):
+    def get_string(self, question=None, retrieval_result=None, formatted_reference=None, previous_gen=None, messages=None, choices=None, **params):
         if messages is not None:
             if isinstance(messages, str):
                 return self.truncate_prompt(messages)
@@ -123,7 +125,10 @@ class PromptTemplate:
             else:
                 formatted_reference = ""
 
-        input_params = {"question": question, "reference": formatted_reference}
+        if choices is not None:
+            choices = [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
+            choices = "\n".join(choices)
+        input_params = {"question": question, "reference": formatted_reference, "choices": choices}
         input_params.update(**params)
 
         system_prompt = self.system_prompt.format(**input_params)

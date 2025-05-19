@@ -445,6 +445,12 @@ class DenseRetriever(BaseTextRetriever):
         if num is None:
             num = self.topk
         batch_size = self.batch_size
+        
+        if num == 0:
+            if return_score:
+                return [None] * len(query), [None] * len(query)
+            else:
+                return [None] * len(query)
 
         results = []
         scores = []

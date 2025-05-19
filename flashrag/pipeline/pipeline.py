@@ -1,3 +1,6 @@
+import random
+from tqdm import tqdm
+
 from flashrag.evaluator import Evaluator
 from flashrag.dataset.utils import split_dataset, merge_dataset
 from flashrag.utils import get_retriever, get_generator, get_refiner, get_judger
@@ -89,8 +92,8 @@ class SequentialPipeline(BasicPipeline):
             if "llmlingua" in self.refiner.name and input_prompt_flag:
                 # input prompt
                 input_prompts = [
-                    self.prompt_template.get_string(question=q, retrieval_result=r)
-                    for q, r in zip(dataset.question, dataset.retrieval_result)
+                    self.prompt_template.get_string(question=q, retrieval_result=r, choices=choices)
+                    for q, r, choices in zip(dataset.question, dataset.retrieval_result, dataset.choices)
                 ]
                 dataset.update_output("prompt", input_prompts)
                 input_prompts = self.refiner.batch_run(dataset)
@@ -99,15 +102,15 @@ class SequentialPipeline(BasicPipeline):
                 refine_results = self.refiner.batch_run(dataset)
                 dataset.update_output("refine_result", refine_results)
                 input_prompts = [
-                    self.prompt_template.get_string(question=q, formatted_reference=r)
-                    for q, r in zip(dataset.question, refine_results)
+                    self.prompt_template.get_string(question=q, formatted_reference=r, choices=choices)
+                    for q, r, choices in zip(dataset.question, refine_results, dataset.choices)
                 ]
 
         else:
             if not self.use_fid:
                 input_prompts = [
-                    self.prompt_template.get_string(question=q, retrieval_result=r)
-                    for q, r in zip(dataset.question, dataset.retrieval_result)
+                    self.prompt_template.get_string(question=q, retrieval_result=r, choices=choices)
+                    for q, r, choices in zip(dataset.question, dataset.retrieval_result, dataset.choices)
                 ]
 
         if self.use_fid:
@@ -250,4 +253,61 @@ class AdaptivePipeline(BasicPipeline):
 
         dataset = self.evaluate(dataset, do_eval=do_eval, pred_process_fun=pred_process_fun)
 
+        return dataset
+
+
+
+class LoglikelihoodPipeline(BasicPipeline):
+    def __init__(self, config, add_choice_text=False, prompt_template=None, retriever=None, generator=None):
+        """
+        inference stage:
+            query -> pre-retrieval -> retriever -> post-retrieval -> generator
+        """
+
+        super().__init__(config, prompt_template)
+        self.add_choice_text = add_choice_text
+        if generator is None:
+            self.generator = get_generator(config)
+        else:
+            self.generator = generator
+
+        if retriever is None:
+            self.retriever = get_retriever(config)
+        else:
+            self.retriever = retriever
+
+
+    def run(self, dataset, do_eval=True, pred_process_fun=None):
+        input_query = dataset.question
+        retrieval_results = self.retriever.batch_search(input_query)
+        dataset.update_output("retrieval_result", retrieval_results)
+
+        input_prompts = [
+            self.prompt_template.get_string(question=q, retrieval_result=r, choices=choices)
+            for q, r, choices in zip(dataset.question, dataset.retrieval_result, dataset.choices)
+        ]
+
+        dataset.update_output("prompt", input_prompts)
+        log_likelihoods = []
+        # Calculate log-likelihood of each possible choice
+        for prompt, choices in tqdm(zip(input_prompts, dataset.choices), total=len(input_prompts), desc="Calculating log-likelihoods"):
+            logs = []
+            random_print = True if random.random() < 0.05 else False
+            if self.add_choice_text:
+                choices = [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]  
+            else:
+                choices = [f"{chr(65 + i)}" for i, choice in enumerate(choices)]     
+            for choice in choices:
+                _, answer_probs = self.generator.cal_gen_probs(prompt, choice)
+                if not isinstance(answer_probs, float):
+                    answer_probs = sum(answer_probs)    # answer_probs will be a list if HF inference framework is used. Reccomended to use vllm for loglikelihoods.
+                logs.append(answer_probs)
+            log_likelihoods.append(logs)
+            # if random_print:
+            #     print(f"Prompt: {prompt}")
+            #     print(f"Choice: {choice}")
+            #     print(f"Log-likelihood: {log_likelihoods[-1]}")
+            #     print("-" * 20)
+        dataset.update_output("loglikelihoods", log_likelihoods)
+        dataset = self.evaluate(dataset, do_eval=do_eval, pred_process_fun=pred_process_fun)
         return dataset

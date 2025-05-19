@@ -12,6 +12,9 @@ from transformers import (
     AutoConfig,
 )
 from flashrag.generator.utils import resolve_max_tokens
+from typing import List
+import random
+import torch
 
 
 class BaseGenerator:
@@ -175,6 +178,7 @@ class VLLMGenerator(BaseGenerator):
         super().__init__(config)
         
         from vllm import LLM
+        from vllm.transformers_utils.tokenizer import get_tokenizer
         if self.use_lora:
             self.model = LLM(
                 self.model_path,
@@ -182,7 +186,6 @@ class VLLMGenerator(BaseGenerator):
                 gpu_memory_utilization = self.gpu_memory_utilization,
                 enable_lora = True,
                 max_lora_rank = 64,
-                max_logprobs = 32016,
                 max_model_len = self.max_model_len
             )
         else:
@@ -190,10 +193,27 @@ class VLLMGenerator(BaseGenerator):
                 self.model_path,
                 tensor_parallel_size = self.tensor_parallel_size,
                 gpu_memory_utilization = self.gpu_memory_utilization,
-                max_logprobs = 32016,
                 max_model_len = self.max_model_len
             )
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, trust_remote_code=True)
+        #self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, trust_remote_code=True)
+        self.tokenizer = get_tokenizer(
+            self.model_path,
+            tokenizer_mode="auto",
+            trust_remote_code=True,
+        )
+
+        if self.tokenizer.bos_token_id is not None:
+            self.custom_prefix_token_id = self.tokenizer.bos_token_id
+        else:
+            self.custom_prefix_token_id = self.tokenizer.eos_token_id
+        
+        seed = 1234
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+            
     def update_additional_setting(self):
         if "gpu_memory_utilization" not in self._config:
             self.gpu_memory_utilization = 0.85
@@ -270,7 +290,96 @@ class VLLMGenerator(BaseGenerator):
             return base_output, scores
         else:
             return base_output
+        
+        
+    def cal_gen_probs(self, prev, next):
+        prompt_tokens = self.tokenizer(prev, add_special_tokens=False, return_attention_mask=False).input_ids
+        options_tokens = self.tokenizer(next, add_special_tokens=False, return_attention_mask=False).input_ids        
+        return None, self._loglikelihood_tokens(prompt_tokens, options_tokens)
+        
+        
+    def _loglikelihood_tokens(self, context_enc, continuation_enc):
+        from vllm import SamplingParams
 
+        inp = (context_enc + continuation_enc)[-(self.max_model_len) :]
+        ctxlen = len(context_enc) - max(
+            0, len(context_enc) + len(continuation_enc) - (self.max_model_len)
+        )
+
+        sampling_params = SamplingParams(
+                temperature=0, prompt_logprobs=1, max_tokens=1, detokenize=False
+        )
+        
+        outputs = self.model.generate(
+                    prompt_token_ids=inp,
+                    sampling_params=sampling_params
+        )
+        
+        # if random.random() < 0.1:
+        #     print("context length: ", ctxlen)
+        #     print("Total input length: ", len(inp))
+        #     print("Question length: ", len(context_enc))
+        #     print("Continuation length: ", len(continuation_enc))
+        #     print("Output: ", outputs)
+        
+        return self._parse_logprobs(
+            tokens=inp,
+            outputs=outputs[0],
+            ctxlen=ctxlen,
+        )
+    
+    
+    def _parse_logprobs(self, tokens: List, outputs, ctxlen: int):
+        """Process logprobs and tokens.
+
+        :param tokens: list
+            Input tokens (potentially left-truncated)
+        :param outputs: RequestOutput
+            Contains prompt_logprobs
+        :param ctxlen: int
+            Length of context (so we can slice them away and only keep the predictions)
+        :return:
+            continuation_logprobs: float
+                Log probabilities of continuation tokens
+            is_greedy: bool
+                Whether argmax matches given continuation exactly
+        """
+
+        # The first entry of prompt_logprobs is None because the model has no previous tokens to condition on.
+        continuation_logprobs_dicts = outputs.prompt_logprobs
+
+        def coerce_logprob_to_num(logprob):
+            # vLLM changed the return type of logprobs from float
+            # to a Logprob object storing the float value + extra data
+            # (https://github.com/vllm-project/vllm/pull/3065).
+            # If we are dealing with vllm's Logprob object, return
+            # the logprob value stored as an attribute. Otherwise,
+            # return the object itself (which should be a float
+            # for older versions of vLLM).
+            return getattr(logprob, "logprob", logprob)
+
+        continuation_logprobs_dicts = [
+            {
+                token: coerce_logprob_to_num(logprob)
+                for token, logprob in logprob_dict.items()
+            }
+            if logprob_dict is not None
+            else None
+            for logprob_dict in continuation_logprobs_dicts
+        ]
+
+        # Calculate continuation_logprobs
+        # assume ctxlen always >= 1
+        continuation_logprobs = sum(
+            logprob_dict.get(token)
+            for token, logprob_dict in zip(
+                tokens[ctxlen:], continuation_logprobs_dicts[ctxlen:]
+            )
+        )
+
+        return continuation_logprobs
+    
+   
 
 class HFCausalLMGenerator(BaseGenerator):
     """Class for decoder-only generator, based on hf."""
@@ -292,7 +401,7 @@ class HFCausalLMGenerator(BaseGenerator):
             model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 torch_dtype="auto",
-                device_map="auto",
+                device_map="cuda:0",
                 trust_remote_code=True,
             )
         else:

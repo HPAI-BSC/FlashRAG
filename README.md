@@ -4,7 +4,6 @@
 <a href="https://arxiv.org/abs/2405.13576" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
 <a href="https://huggingface.co/datasets/RUC-NLPIR/FlashRAG_datasets/" target="_blank"><img src=https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace%20Datasets-27b3b4.svg></a>
 <a href="https://www.modelscope.cn/datasets/hhjinjiajie/FlashRAG_Dataset" target="_blank"><img src=https://custom-icon-badges.demolab.com/badge/ModelScope%20Datasets-624aff?style=flat&logo=modelscope&logoColor=white></a>
-<a href="https://deepwiki.com/RUC-NLPIR/FlashRAG"><img src="https://devin.ai/assets/deepwiki-badge.png" alt="DeepWiki Document" height="20"/></a>
 <a href="https://github.com/RUC-NLPIR/FlashRAG/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/LICENSE-MIT-green"></a>
 <a><img alt="Static Badge" src="https://img.shields.io/badge/made_with-Python-blue"></a>
 </div>
@@ -129,9 +128,6 @@ FlashRAG is still under development and there are many issues and room for impro
 </details>
 
 ## :wrench: Installation
-![PyPI - Version](https://img.shields.io/pypi/v/flashrag-dev) 
-![PyPI - Downloads](https://img.shields.io/pypi/dw/flashrag-dev) 
-![PyPI - Downloads](https://img.shields.io/pypi/dm/flashrag-dev)
 
 To get started with FlashRAG, you can simply install it with pip:
 
